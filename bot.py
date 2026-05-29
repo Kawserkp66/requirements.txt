@@ -5,9 +5,18 @@ import telebot
 import requests
 import random
 import string
+from dotenv import load_dotenv
 
-BOT_TOKEN = "8723812816:AAEi6AbsT8XqTTggYLOqZllRXAwas3FzdC4"
-GEMINI_KEY = "AQ.Ab8RN6K2NYIXnre_Ye-v8zWH8-h3T6wguC8FYE8mSeF7fjyh"
+# Load environment variables from .env file
+load_dotenv()
+
+# Get API keys from environment variables (secure way)
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+GEMINI_KEY = os.getenv("GEMINI_KEY")
+
+# Validate that required keys are set
+if not BOT_TOKEN or not GEMINI_KEY:
+    raise ValueError("❌ BOT_TOKEN or GEMINI_KEY not found in environment variables!")
 
 bot = telebot.TeleBot(BOT_TOKEN)
 app = Flask('')
