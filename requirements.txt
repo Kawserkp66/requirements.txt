@@ -2,4 +2,3 @@ pyTelegramBotAPI
 requests
 python-dotenv
 flask
-beautifulsoup4
