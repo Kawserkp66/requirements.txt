@@ -1,5 +1,3 @@
 pyTelegramBotAPI
-python-dotenv
-flask
 requests
-urllib3
+python-dotenv
