@@ -181,8 +181,8 @@ def query_ollama(question):
             answer = data.get('response', '')
             if answer:
                 return answer[:500], "Ollama", 85, response.elapsed.total_seconds()
-    except:
-        pass
+    except Exception as e:
+        print(f"❌ Ollama Error: {e}")
     return None, None, 0, 0
 
 def query_together_ai(question):
@@ -204,8 +204,8 @@ def query_together_ai(question):
             answer = data.get('output', {}).get('choices', [{}])[0].get('text', '')
             if answer:
                 return answer[:500], "Together AI", 80, response.elapsed.total_seconds()
-    except:
-        pass
+    except Exception as e:
+        print(f"❌ Together AI Error: {e}")
     return None, None, 0, 0
 
 def query_openrouter(question):
@@ -230,8 +230,8 @@ def query_openrouter(question):
             answer = data.get('choices', [{}])[0].get('message', {}).get('content', '')
             if answer:
                 return answer[:500], "OpenRouter", 85, response.elapsed.total_seconds()
-    except:
-        pass
+    except Exception as e:
+        print(f"❌ OpenRouter Error: {e}")
     return None, None, 0, 0
 
 def query_huggingface(question):
@@ -251,8 +251,8 @@ def query_huggingface(question):
                 answer = data[0].get('generated_text', '')
                 if answer:
                     return answer[:500], "HuggingFace", 75, response.elapsed.total_seconds()
-    except:
-        pass
+    except Exception as e:
+        print(f"❌ HuggingFace Error: {e}")
     return None, None, 0, 0
 
 def query_cohere(question):
@@ -274,8 +274,8 @@ def query_cohere(question):
             answer = data.get('generations', [{}])[0].get('text', '')
             if answer:
                 return answer[:500], "Cohere", 80, response.elapsed.total_seconds()
-    except:
-        pass
+    except Exception as e:
+        print(f"❌ Cohere Error: {e}")
     return None, None, 0, 0
 
 def query_groq(question):
@@ -300,8 +300,8 @@ def query_groq(question):
             answer = data.get('choices', [{}])[0].get('message', {}).get('content', '')
             if answer:
                 return answer[:500], "Groq", 90, response.elapsed.total_seconds()
-    except:
-        pass
+    except Exception as e:
+        print(f"❌ Groq Error: {e}")
     return None, None, 0, 0
 
 def query_all_ais(question):
@@ -325,9 +325,10 @@ def query_all_ais(question):
             future = executor.submit(func, question)
             futures[future] = name
         
+        # ✅ সমাধান: সঠিক error handling
         for future in concurrent.futures.as_completed(futures):
             try:
-                answer, source, score, time_taken = future.result()
+                answer, source, score, time_taken = future.result(timeout=5)
                 if answer:
                     responses.append({
                         'answer': answer,
@@ -335,8 +336,10 @@ def query_all_ais(question):
                         'score': score,
                         'time': time_taken
                     })
-            except:
-                pass
+            except concurrent.futures.TimeoutError:
+                print(f"⏱️ Timeout: {futures[future]}")
+            except Exception as e:
+                print(f"❌ Error in {futures[future]}: {e}")
     
     return responses
 
@@ -350,8 +353,8 @@ def save_ai_response(ai_name, question, answer, score):
             VALUES (?, ?, ?, ?, ?)
         ''', (ai_name, question, answer, score, datetime.now()))
         conn.commit()
-    except:
-        pass
+    except Exception as e:
+        print(f"❌ Database Error: {e}")
     finally:
         conn.close()
 
@@ -365,8 +368,8 @@ def save_knowledge(question, answer, source, confidence=70):
             VALUES (?, ?, ?, ?, ?)
         ''', (question, answer, source, confidence, datetime.now()))
         conn.commit()
-    except:
-        pass
+    except Exception as e:
+        print(f"❌ Database Error: {e}")
     finally:
         conn.close()
 
@@ -446,7 +449,7 @@ def compare_ais(message):
         bot.reply_to(message, "📌 কমান্ড: `/compare আপনার_প্রশ্ন`", parse_mode="Markdown")
         return
     
-    msg = bot.reply_to(message, f"🔄 সব AI এর কাছ থেকে উত্তর সংগ্রহ করছি... ⏳")
+    msg = bot.reply_to(message, f"🔄 স�� AI এর কাছ থেকে উত্তর সংগ্রহ করছি... ⏳")
     
     responses = query_all_ais(query)
     
@@ -463,7 +466,16 @@ def compare_ais(message):
         
         bot.edit_message_text(text, message.chat.id, msg.message_id)
     else:
-        bot.edit_message_text("❌ কোনো AI সাড়া দেয়নি। API কী চেক করুন বা Ollama চালু করুন।", message.chat.id, msg.message_id)
+        # ✅ সমাধান: Line 466 টাইপো ঠিক করা হয়েছে
+        bot.edit_message_text(
+            "❌ কোনো AI সাড়া দেয়নি।\n\n"
+            "সমাধান:\n"
+            "1️⃣ Ollama চালু করুন: `ollama run mistral`\n"
+            "2️⃣ API কী যোগ করুন: `.env` এ\n"
+            "3️⃣ `/teach` দিয়ে নিজে শেখান",
+            message.chat.id,
+            msg.message_id
+        )
 
 @bot.message_handler(commands=['teach'])
 def teach(message):
