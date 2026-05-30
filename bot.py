@@ -31,7 +31,7 @@ def keep_alive():
 
 def call_gemini(text_prompt):
     # গুগল ক্লাউড এপিআই এন্ডপয়েন্ট (v1 মডেল)
-    url = f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={GEMINI_KEY}"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_KEY}"
     headers = {"Content-Type": "application/json"}
     payload = {
         "contents": [{"parts": [{"text": text_prompt}]}]
