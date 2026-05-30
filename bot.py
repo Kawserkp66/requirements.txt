@@ -9,6 +9,7 @@ from datetime import datetime
 from bs4 import BeautifulSoup
 import sqlite3
 import concurrent.futures
+import time
 
 # Load environment variables
 load_dotenv()
@@ -19,7 +20,7 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 if not BOT_TOKEN:
     raise ValueError("❌ BOT_TOKEN not found in environment variables!")
 
-bot = telebot.TeleBot(BOT_TOKEN)
+bot = telebot.TeleBot(BOT_TOKEN, skip_pending=True)
 app = Flask('')
 
 # Database for learning
@@ -157,7 +158,7 @@ def stats():
 
 def run():
     port = int(os.environ.get("PORT", 8080))
-    app.run(host='0.0.0.0', port=port, debug=False)
+    app.run(host='0.0.0.0', port=port, debug=False, threaded=True)
 
 def keep_alive():
     t = Thread(target=run)
@@ -182,14 +183,14 @@ def query_ollama(question):
             if answer:
                 return answer[:500], "Ollama", 85, response.elapsed.total_seconds()
     except Exception as e:
-        print(f"❌ Ollama Error: {e}")
+        print(f"❌ Ollama Error: {str(e)}")
     return None, None, 0, 0
 
 def query_together_ai(question):
     """Query Together AI"""
     try:
         ai_config = AI_PROVIDERS["together"]
-        if not ai_config["enabled"]:
+        if not ai_config["enabled"] or not ai_config.get("key"):
             return None, None, 0, 0
         
         headers = {"Authorization": f"Bearer {ai_config['key']}"}
@@ -204,15 +205,17 @@ def query_together_ai(question):
             answer = data.get('output', {}).get('choices', [{}])[0].get('text', '')
             if answer:
                 return answer[:500], "Together AI", 80, response.elapsed.total_seconds()
+        else:
+            print(f"❌ Together AI Status: {response.status_code}")
     except Exception as e:
-        print(f"❌ Together AI Error: {e}")
+        print(f"❌ Together AI Error: {str(e)}")
     return None, None, 0, 0
 
 def query_openrouter(question):
     """Query OpenRouter"""
     try:
         ai_config = AI_PROVIDERS["openrouter"]
-        if not ai_config["enabled"]:
+        if not ai_config["enabled"] or not ai_config.get("key"):
             return None, None, 0, 0
         
         headers = {
@@ -230,15 +233,17 @@ def query_openrouter(question):
             answer = data.get('choices', [{}])[0].get('message', {}).get('content', '')
             if answer:
                 return answer[:500], "OpenRouter", 85, response.elapsed.total_seconds()
+        else:
+            print(f"❌ OpenRouter Status: {response.status_code}")
     except Exception as e:
-        print(f"❌ OpenRouter Error: {e}")
+        print(f"❌ OpenRouter Error: {str(e)}")
     return None, None, 0, 0
 
 def query_huggingface(question):
     """Query HuggingFace"""
     try:
         ai_config = AI_PROVIDERS["huggingface"]
-        if not ai_config["enabled"]:
+        if not ai_config["enabled"] or not ai_config.get("key"):
             return None, None, 0, 0
         
         headers = {"Authorization": f"Bearer {ai_config['key']}"}
@@ -251,15 +256,17 @@ def query_huggingface(question):
                 answer = data[0].get('generated_text', '')
                 if answer:
                     return answer[:500], "HuggingFace", 75, response.elapsed.total_seconds()
+        else:
+            print(f"❌ HuggingFace Status: {response.status_code}")
     except Exception as e:
-        print(f"❌ HuggingFace Error: {e}")
+        print(f"❌ HuggingFace Error: {str(e)}")
     return None, None, 0, 0
 
 def query_cohere(question):
     """Query Cohere"""
     try:
         ai_config = AI_PROVIDERS["cohere"]
-        if not ai_config["enabled"]:
+        if not ai_config["enabled"] or not ai_config.get("key"):
             return None, None, 0, 0
         
         headers = {"Authorization": f"Bearer {ai_config['key']}"}
@@ -274,15 +281,17 @@ def query_cohere(question):
             answer = data.get('generations', [{}])[0].get('text', '')
             if answer:
                 return answer[:500], "Cohere", 80, response.elapsed.total_seconds()
+        else:
+            print(f"❌ Cohere Status: {response.status_code}")
     except Exception as e:
-        print(f"❌ Cohere Error: {e}")
+        print(f"❌ Cohere Error: {str(e)}")
     return None, None, 0, 0
 
 def query_groq(question):
     """Query Groq"""
     try:
         ai_config = AI_PROVIDERS["groq"]
-        if not ai_config["enabled"]:
+        if not ai_config["enabled"] or not ai_config.get("key"):
             return None, None, 0, 0
         
         headers = {
@@ -300,8 +309,10 @@ def query_groq(question):
             answer = data.get('choices', [{}])[0].get('message', {}).get('content', '')
             if answer:
                 return answer[:500], "Groq", 90, response.elapsed.total_seconds()
+        else:
+            print(f"❌ Groq Status: {response.status_code}")
     except Exception as e:
-        print(f"❌ Groq Error: {e}")
+        print(f"❌ Groq Error: {str(e)}")
     return None, None, 0, 0
 
 def query_all_ais(question):
@@ -309,7 +320,6 @@ def query_all_ais(question):
     responses = []
     
     ai_functions = [
-        ("Local", lambda: (None, None, 0, 0)),  # Skip local for now
         ("Ollama", query_ollama),
         ("Together", query_together_ai),
         ("OpenRouter", query_openrouter),
@@ -319,16 +329,14 @@ def query_all_ais(question):
     ]
     
     # Use ThreadPoolExecutor for parallel queries
-    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-        futures = {}
-        for name, func in ai_functions[1:]:  # Skip local
-            future = executor.submit(func, question)
-            futures[future] = name
+    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+        futures = {executor.submit(func, question): name for name, func in ai_functions}
         
-        # ✅ সমাধান: সঠিক error handling
-        for future in concurrent.futures.as_completed(futures):
+        # ✅ উন্নত error handling with timeout
+        for future in concurrent.futures.as_completed(futures, timeout=15):
+            ai_name = futures[future]
             try:
-                answer, source, score, time_taken = future.result(timeout=5)
+                answer, source, score, time_taken = future.result()
                 if answer:
                     responses.append({
                         'answer': answer,
@@ -336,10 +344,11 @@ def query_all_ais(question):
                         'score': score,
                         'time': time_taken
                     })
+                    print(f"✅ {ai_name} সাফল্য")
             except concurrent.futures.TimeoutError:
-                print(f"⏱️ Timeout: {futures[future]}")
+                print(f"⏱️ {ai_name} Timeout")
             except Exception as e:
-                print(f"❌ Error in {futures[future]}: {e}")
+                print(f"❌ {ai_name} Error: {str(e)}")
     
     return responses
 
@@ -354,7 +363,7 @@ def save_ai_response(ai_name, question, answer, score):
         ''', (ai_name, question, answer, score, datetime.now()))
         conn.commit()
     except Exception as e:
-        print(f"❌ Database Error: {e}")
+        print(f"❌ Database Save Error: {str(e)}")
     finally:
         conn.close()
 
@@ -369,7 +378,7 @@ def save_knowledge(question, answer, source, confidence=70):
         ''', (question, answer, source, confidence, datetime.now()))
         conn.commit()
     except Exception as e:
-        print(f"❌ Database Error: {e}")
+        print(f"❌ Database Learn Error: {str(e)}")
     finally:
         conn.close()
 
@@ -414,7 +423,6 @@ def start(message):
 ✅ HuggingFace
 ✅ Cohere
 ✅ Groq
-✅ আরো অনেক AI!
 
 কমান্ড:
 /ais - সব সংযুক্ত AI দেখুন
@@ -424,115 +432,128 @@ def start(message):
 /stats - আমার অগ্রগতি
 /help - সাহায্য
     """
-    bot.reply_to(message, welcome)
+    try:
+        bot.reply_to(message, welcome)
+    except Exception as e:
+        print(f"❌ Start Error: {str(e)}")
 
 @bot.message_handler(commands=['ais'])
 def show_ais(message):
     """Show all connected AIs"""
-    text = "🤖 সংযুক্ত AI প্রদানকারী:\n\n"
-    
-    active_count = 0
-    for key, ai in AI_PROVIDERS.items():
-        if ai.get("enabled", False):
-            text += f"✅ {ai['name']}\n"
-            active_count += 1
-    
-    text += f"\n💪 মোট সক্রিয় AI: {active_count}"
-    bot.reply_to(message, text)
+    try:
+        text = "🤖 সংযুক্ত AI প্রদানকারী:\n\n"
+        
+        active_count = 0
+        for key, ai in AI_PROVIDERS.items():
+            if ai.get("enabled", False):
+                text += f"✅ {ai['name']}\n"
+                active_count += 1
+        
+        text += f"\n💪 মোট সক্রিয় AI: {active_count}"
+        bot.reply_to(message, text)
+    except Exception as e:
+        print(f"❌ Show AIs Error: {str(e)}")
 
 @bot.message_handler(commands=['compare'])
 def compare_ais(message):
     """Compare all AI responses"""
-    query = message.text.replace('/compare', '').strip()
-    
-    if not query:
-        bot.reply_to(message, "📌 কমান্ড: `/compare আপনার_প্রশ্ন`", parse_mode="Markdown")
-        return
-    
-    msg = bot.reply_to(message, f"🔄 স�� AI এর কাছ থেকে উত্তর সংগ্রহ করছি... ⏳")
-    
-    responses = query_all_ais(query)
-    
-    if responses:
-        # Sort by score
-        responses.sort(key=lambda x: x['score'], reverse=True)
+    try:
+        query = message.text.replace('/compare', '').strip()
         
-        text = f"🏆 AI তুলনা ({len(responses)} উত্তর):\n\n"
+        if not query:
+            bot.reply_to(message, "📌 কমান্ড: `/compare আপনার_প্রশ্ন`", parse_mode="Markdown")
+            return
         
-        for i, resp in enumerate(responses, 1):
-            medal = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else f"{i}️⃣"
-            text += f"{medal} **{resp['source']}** (স্কোর: {resp['score']}%, সময়: {resp['time']:.2f}s)\n"
-            text += f"💬 {resp['answer'][:150]}...\n\n"
+        msg = bot.reply_to(message, f"🔄 সব AI এর কাছ থেকে উত্তর সংগ্রহ করছি... ⏳")
         
-        bot.edit_message_text(text, message.chat.id, msg.message_id)
-    else:
-        # ✅ সমাধান: Line 466 টাইপো ঠিক করা হয়েছে
-        bot.edit_message_text(
-            "❌ কোনো AI সাড়া দেয়নি।\n\n"
-            "সমাধান:\n"
-            "1️⃣ Ollama চালু করুন: `ollama run mistral`\n"
-            "2️⃣ API কী যোগ করুন: `.env` এ\n"
-            "3️⃣ `/teach` দিয়ে নিজে শেখান",
-            message.chat.id,
-            msg.message_id
-        )
+        responses = query_all_ais(query)
+        
+        if responses:
+            responses.sort(key=lambda x: x['score'], reverse=True)
+            text = f"🏆 AI তুলনা ({len(responses)} উত্তর):\n\n"
+            
+            for i, resp in enumerate(responses, 1):
+                medal = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else f"{i}️⃣"
+                text += f"{medal} **{resp['source']}** (স্কোর: {resp['score']}%, সময়: {resp['time']:.2f}s)\n"
+                text += f"💬 {resp['answer'][:150]}...\n\n"
+            
+            bot.edit_message_text(text, message.chat.id, msg.message_id)
+        else:
+            bot.edit_message_text(
+                "❌ কোনো AI সাড়া দেয়নি।\n\n"
+                "সমাধান:\n"
+                "1️⃣ Ollama চালু করুন: `ollama run mistral`\n"
+                "2️⃣ API কী চেক করুন `.env` এ\n"
+                "3️⃣ ইন্টারনেট সংযোগ পরীক্ষা করুন",
+                message.chat.id,
+                msg.message_id
+            )
+    except Exception as e:
+        print(f"❌ Compare Error: {str(e)}")
 
 @bot.message_handler(commands=['teach'])
 def teach(message):
     """Teach the bot"""
-    text = message.text.replace('/teach', '').strip()
-    
-    if not text or '|' not in text:
-        bot.reply_to(message, "📖 ফরম্যাট: `/teach প্রশ্ন | উত্তর`", parse_mode="Markdown")
-        return
-    
-    parts = text.split('|')
-    question = parts[0].strip()
-    answer = parts[1].strip()
-    
-    save_knowledge(question, answer, "Manual Teaching", 90)
-    bot.reply_to(message, f"✅ শিখে গেছি!\n\n❓ {question}\n✏️ {answer}")
+    try:
+        text = message.text.replace('/teach', '').strip()
+        
+        if not text or '|' not in text:
+            bot.reply_to(message, "📖 ফরম্যাট: `/teach প্রশ্ন | উত্তর`", parse_mode="Markdown")
+            return
+        
+        parts = text.split('|')
+        question = parts[0].strip()
+        answer = parts[1].strip()
+        
+        save_knowledge(question, answer, "Manual Teaching", 90)
+        bot.reply_to(message, f"✅ শিখে গেছি!\n\n❓ {question}\n✏️ {answer}")
+    except Exception as e:
+        print(f"❌ Teach Error: {str(e)}")
 
 @bot.message_handler(commands=['learn'])
 def show_knowledge(message):
     """Show learned knowledge"""
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute("SELECT question, answer, source FROM knowledge LIMIT 5")
-    results = cursor.fetchall()
-    conn.close()
-    
-    if not results:
-        bot.reply_to(message, "📚 এখনও কিছু শিখিনি। `/teach` দিয়ে শেখান!")
-        return
-    
-    text = "📚 আমার শেখা জ্ঞান:\n\n"
-    for q, a, src in results:
-        text += f"❓ {q}\n📍 উৎস: {src}\n✏️ {a[:80]}...\n\n"
-    
-    bot.reply_to(message, text)
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        cursor = conn.cursor()
+        cursor.execute("SELECT question, answer, source FROM knowledge LIMIT 5")
+        results = cursor.fetchall()
+        conn.close()
+        
+        if not results:
+            bot.reply_to(message, "📚 এখনও কিছু শিখিনি। `/teach` দিয়ে শেখান!")
+            return
+        
+        text = "📚 আমার শেখা জ্ঞান:\n\n"
+        for q, a, src in results:
+            text += f"❓ {q}\n📍 উৎস: {src}\n✏️ {a[:80]}...\n\n"
+        
+        bot.reply_to(message, text)
+    except Exception as e:
+        print(f"❌ Learn Error: {str(e)}")
 
 @bot.message_handler(commands=['stats'])
 def show_stats(message):
     """Show statistics"""
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    
-    cursor.execute("SELECT COUNT(*) FROM knowledge")
-    total_knowledge = cursor.fetchone()[0]
-    
-    cursor.execute("SELECT COUNT(DISTINCT source) FROM knowledge")
-    total_sources = cursor.fetchone()[0]
-    
-    cursor.execute("SELECT COUNT(*) FROM ai_responses")
-    total_ai_responses = cursor.fetchone()[0]
-    
-    cursor.execute("SELECT AVG(quality_score) FROM ai_responses")
-    avg_score = cursor.fetchone()[0] or 0
-    
-    conn.close()
-    
-    stats_text = f"""
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        cursor = conn.cursor()
+        
+        cursor.execute("SELECT COUNT(*) FROM knowledge")
+        total_knowledge = cursor.fetchone()[0]
+        
+        cursor.execute("SELECT COUNT(DISTINCT source) FROM knowledge")
+        total_sources = cursor.fetchone()[0]
+        
+        cursor.execute("SELECT COUNT(*) FROM ai_responses")
+        total_ai_responses = cursor.fetchone()[0]
+        
+        cursor.execute("SELECT AVG(quality_score) FROM ai_responses")
+        avg_score = cursor.fetchone()[0] or 0
+        
+        conn.close()
+        
+        stats_text = f"""
 📊 বটের পরিসংখ্যান:
 
 📚 মোট শেখা বিষয়: {total_knowledge}
@@ -541,13 +562,16 @@ def show_stats(message):
 ⭐ গড় AI স্কোর: {avg_score:.1f}%
 
 💪 ক্রমাগত শক্তিশালী হচ্ছি!
-    """
-    bot.reply_to(message, stats_text)
+        """
+        bot.reply_to(message, stats_text)
+    except Exception as e:
+        print(f"❌ Stats Error: {str(e)}")
 
 @bot.message_handler(commands=['help'])
 def help_cmd(message):
     """Show help"""
-    help_text = """
+    try:
+        help_text = """
 📖 কমান্ড সম্পূর্ণ তালিকা:
 
 🤖 AI কমান্ড:
@@ -566,41 +590,51 @@ def help_cmd(message):
 - যেকোনো বার্তা পাঠান - সব AI উত্তর দেবে
 - `/compare` দিয়ে সব AI তুলনা করুন
 - `/teach` দিয়ে নিজের জ্ঞান যোগ করুন
-    """
-    bot.reply_to(message, help_text)
+        """
+        bot.reply_to(message, help_text)
+    except Exception as e:
+        print(f"❌ Help Error: {str(e)}")
 
 @bot.message_handler(func=lambda message: True)
 def chat(message):
     """Handle regular messages"""
-    user_text = message.text
-    
-    msg = bot.reply_to(message, "🔄 সব AI এর কাছ থেকে সেরা উত্তর খুঁজছি... ⏳")
-    
-    response, source, score = get_response(user_text)
-    
-    if response:
-        result_text = f"{response}\n\n"
-        result_text += f"🤖 উৎস: **{source}**\n"
-        result_text += f"⭐ আত্মবিশ্বাস: {score}%"
+    try:
+        user_text = message.text
         
-        if score < 70:
-            result_text += "\n\n💡 আমাকে শেখান: `/teach` ব্যবহার করুন"
+        msg = bot.reply_to(message, "🔄 সব AI এর কাছ থেকে সেরা উত্তর খুঁজছি... ⏳")
         
-        bot.edit_message_text(result_text, message.chat.id, msg.message_id)
-    else:
-        bot.edit_message_text(
-            "❌ কোনো AI সাড়া দেয়নি।\n\n"
-            "সমাধান:\n"
-            "1️⃣ Ollama চালু করুন: `ollama run mistral`\n"
-            "2️⃣ API কী যোগ করুন: `.env` এ\n"
-            "3️⃣ `/teach` দিয়ে নিজে শেখান",
-            message.chat.id,
-            msg.message_id
-        )
+        response, source, score = get_response(user_text)
+        
+        if response:
+            result_text = f"{response}\n\n"
+            result_text += f"🤖 উৎস: **{source}**\n"
+            result_text += f"⭐ আত্মবিশ্বাস: {score}%"
+            
+            if score < 70:
+                result_text += "\n\n💡 আমাকে শেখান: `/teach` ব্যবহার করুন"
+            
+            bot.edit_message_text(result_text, message.chat.id, msg.message_id)
+        else:
+            bot.edit_message_text(
+                "❌ কোনো AI সাড়া দেয়নি।\n\n"
+                "সমাধান:\n"
+                "1️⃣ Ollama চালু করুন: `ollama run mistral`\n"
+                "2️⃣ API কী যুক্ত করুন: `.env` এ\n"
+                "3️⃣ `/teach` দিয়ে নিজে শেখান",
+                message.chat.id,
+                msg.message_id
+            )
+    except Exception as e:
+        print(f"❌ Chat Error: {str(e)}")
 
 if __name__ == "__main__":
     keep_alive()
     print("✅ মাল্টি-AI বট চালু হয়েছে!")
     print("🤖 সব AI এর সাথে সংযুক্ত!")
     print("💪 প্যারালাল কোয়েরিং সক্রিয়!")
-    bot.infinity_polling(timeout=60, long_polling_timeout=5)
+    
+    try:
+        bot.infinity_polling(timeout=60, long_polling_timeout=5, skip_pending=True)
+    except Exception as e:
+        print(f"❌ Polling Error: {str(e)}")
+        time.sleep(2)
