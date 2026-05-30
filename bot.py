@@ -31,7 +31,7 @@ AI_PROVIDERS = {
         "type": "api",
         "enabled": os.getenv("GROQ_API_KEY") is not None,
         "key": os.getenv("GROQ_API_KEY"),
-        "model": "mixtral-8x7b-32768"
+        "model": "llama3-8b-8192"
     },
     "openrouter": {
         "name": "🔀 OpenRouter",
