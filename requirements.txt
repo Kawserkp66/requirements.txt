@@ -1,4 +1,4 @@
 pyTelegramBotAPI
-requests
+google-genai
 python-dotenv
 flask
