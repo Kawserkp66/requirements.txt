@@ -153,6 +153,9 @@ def query_groq(question):
         }
         
         response = requests.post(ai_config["url"], headers=headers, json=payload, timeout=10)
+        print("Groq Status:", response.status_code)
+        print("Groq Response:", response.text)
+
         
         if response.status_code == 200:
             data = response.json()
